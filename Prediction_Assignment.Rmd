@@ -1,0 +1,157 @@
+---
+title: "Prediction_assignment_writeup"
+author: "Panurat"
+date: "2023-11-12"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Sypnosis
+
+The aim of this study is to predict the manner (“classe”) in which some healthy subjects performed a weight lifting exercise.
+
+The subjects carried out the excercise in different fashions (some correct and some wrong). Their movements were monitorized using devices equipped with accelerometers and stored in datasets that are available in the “WayBack Machine” website: http://web.archive.org/web/20161224072740/http:/groupware.les.inf.puc-rio.br/har.
+
+##Loading and Cleaning My Data
+```{r import}
+library(lattice)
+library(ggplot2)
+library(caret)
+library(rpart)
+library(rpart.plot)
+library(corrplot)
+library(rattle)
+library(randomForest)
+library(RColorBrewer)
+library(gbm)
+set.seed(222)
+```
+
+```{r get data1}
+url_train <- "http://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+url_test  <- "http://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+
+data_train <- read.csv(url(url_train), strip.white = TRUE, na.strings = c("NA",""))
+data_test  <- read.csv(url(url_test),  strip.white = TRUE, na.strings = c("NA",""))
+
+dim(data_train)
+dim(data_test)
+```
+Create 2 partitions (75% & 25%) within training set
+```{r get data2}
+in_train  <- createDataPartition(data_train$classe, p=0.75, list=FALSE)
+train_set <- data_train[ in_train, ]
+test_set  <- data_train[-in_train, ]
+
+dim(train_set)
+dim(test_set)
+
+
+```
+Remove NA values and near-zero variance variables, both to be removed together.
+```{r get data3}
+nzv_var <- nearZeroVar(train_set)
+
+train_set <- train_set[ , -nzv_var]
+test_set  <- test_set [ , -nzv_var]
+
+dim(train_set)
+dim(test_set)
+```
+Remove variables that are mostly NA, a threshold of 95% is selected.
+```{r get data4}
+na_var <- sapply(train_set, function(x) mean(is.na(x))) > 0.95
+train_set <- train_set[ , na_var == FALSE]
+test_set  <- test_set [ , na_var == FALSE]
+
+dim(train_set)
+dim(test_set)
+```
+Since columns 1 to 5 are identification variables only, they will be removed as well.
+```{r get data5}
+train_set <- train_set[ , -(1:5)]
+test_set  <- test_set [ , -(1:5)]
+
+dim(train_set)
+dim(test_set)
+```
+The number of variables has been reduced from 160 to 54 through cleaning the data.
+
+## Correlation Analysis
+```{r Correlation Analysis}
+corr_matrix <- cor(train_set[ , -54])
+corrplot(corr_matrix, order = "FPC", method = "circle", type = "lower",
+         tl.cex = 0.6, tl.col = rgb(0, 0, 0))
+```
+The darker shade of each of the color shows the correlations; the darker blue showing a positive correlation and the darker red showing a negative correlation. Due to so few strong correlations, a few prediction models will be built for better accuracy.
+
+### Prediction Models
+## Decision Tree Model
+
+```{r Decision Tree Model1}
+set.seed(2222)
+fit_decision_tree <- rpart(classe ~ ., data = train_set, method="class")
+fancyRpartPlot(fit_decision_tree)
+```
+Predictions of the decision tree model with test_set
+```{r Decision Tree Model2}
+predict_decision_tree <- predict(fit_decision_tree, newdata = test_set, type="class")
+conf_matrix_decision_tree <- confusionMatrix(predict_decision_tree, factor(test_set$classe))
+conf_matrix_decision_tree
+```
+The predictive accuracy of the decision tree model is relatively low at 75.2 %.
+
+Plot the predictive accuracy of the decision tree model.
+```{r Decision Tree Model3}
+plot(conf_matrix_decision_tree$table, col = conf_matrix_decision_tree$byClass, 
+     main = paste("Decision Tree Model: Predictive Accuracy =",
+                  round(conf_matrix_decision_tree$overall['Accuracy'], 4)))
+```
+## Generalized Boosted Model (GBM)
+```{r Generalized Boosted Model1}
+set.seed(2222)
+ctrl_GBM <- trainControl(method = "repeatedcv", number = 5, repeats = 2)
+fit_GBM  <- train(classe ~ ., data = train_set, method = "gbm",
+                  trControl = ctrl_GBM, verbose = FALSE)
+fit_GBM$finalModel
+```
+Predictions of the GBM on test_set
+```{r Generalized Boosted Model2}
+predict_GBM <- predict(fit_GBM, newdata = test_set)
+conf_matrix_GBM <- confusionMatrix(predict_GBM, factor(test_set$classe))
+conf_matrix_GBM
+```
+The predictive accuracy of GBM is 98.57%
+
+## Random Forest Model
+```{r Random Forest Model1}
+set.seed(2222)
+ctrl_RF <- trainControl(method = "repeatedcv", number = 5, repeats = 2)
+fit_RF  <- train(classe ~ ., data = train_set, method = "rf",
+                  trControl = ctrl_RF, verbose = FALSE)
+fit_RF$finalModel
+```
+Predictions of the Random Forest model on test_set
+```{r Random Forest Model2}
+predict_RF <- predict(fit_RF, newdata = test_set)
+conf_matrix_RF <- confusionMatrix(predict_RF, factor(test_set$classe))
+conf_matrix_RF
+```
+Predictive accuracy of the Random Forest model is excellent = 99.8%
+
+### Applying the Best Predictive Model to the Test Data
+Predictive accuracy of the three models:
+
+-Decision Tree Model: 75.20%
+
+-Generalized Boosted Model: 98.57%
+
+-Random Forest Model: 99.80%
+
+The Random Forest Model is selected and used to make predictions on the 20 data points from the original testing dataset (data_test)
+```{r applying}
+predict_test <- as.data.frame(predict(fit_RF, newdata = data_test))
+predict_test
